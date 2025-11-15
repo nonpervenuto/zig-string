@@ -135,11 +135,13 @@ pub const String = struct {
     }
 
     pub fn len(self: String) usize {
+        var size: usize = 0;
         var i: usize = 0;
         while (i < self.str.len) {
+            size += 1;
             i += utf8Size(self.str[i]);
         }
-        return i;
+        return size;
     }
 
     /// Remove empty spaces at the start and at the end.
@@ -339,7 +341,7 @@ pub fn FixedString(comptime max_size: usize) type {
         }
 
         pub fn format(self: Self, writer: *std.Io.Writer) !void {
-            try writer.print("{s}", .{self.string});
+            try writer.print("{f}", .{self.string});
         }
     };
 }
