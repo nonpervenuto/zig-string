@@ -1,6 +1,6 @@
 ## Another Zig String Library
 
-My personal exercise to handle strings more easily with some unicode support. Still a work in progress.
+My personal exercise project to learn zig and to handle strings more easily with some UTF-8 support. Still a work in progress.
 
 ### Basic
 ```zig
