@@ -6,10 +6,12 @@ pub fn main() !void {
     var allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = allocator.allocator();
 
-    // try ex1(gpa);
+    try ex1(gpa);
     // try ex2(gpa);
     // try ex3();
-    try ex4(gpa);
+    // try ex4(gpa);
+
+    try ex5(gpa);
 }
 
 pub fn ex1(gpa: std.mem.Allocator) !void {
@@ -51,4 +53,29 @@ pub fn ex4(gpa: std.mem.Allocator) !void {
     for (0..s.len()) |i| {
         std.debug.print("{s}", .{s.charAt(i).?});
     }
+}
+
+fn ex5(gpa: std.mem.Allocator) !void {
+    const file = try std.fs.createFileAbsolute("/tmp/file.txt", .{});
+
+    var s: String = try String.from(gpa, "すありが");
+    defer s.deinit(gpa);
+    try s.insert(gpa, 2, "--ありがとうございま--");
+
+    try file.writeAll(s.str);
+    file.close();
+
+    const file_handle = try std.fs.cwd().openFile("/tmp/file.txt", .{});
+    defer file_handle.close();
+
+    // read file contents
+
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    var file_reader = file_handle.reader(threaded.io(), &.{});
+    const file_buf = try file_reader.interface.allocRemaining(gpa, .unlimited);
+
+    var s1: String = String.fromOwned(file_buf);
+    defer s1.deinit(gpa);
+
+    std.debug.print("{f}", .{s1});
 }

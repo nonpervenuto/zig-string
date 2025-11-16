@@ -180,6 +180,7 @@ pub const String = struct {
     str: []u8,
 
     /// Create an empty a String
+    /// WARNING: FIX ME, we shouold allocate zero memory instead of this.
     pub fn empty() Self {
         return String{
             .str = &.{},
@@ -187,9 +188,18 @@ pub const String = struct {
     }
 
     /// Create and inizialize a String
+    /// A copy is made.
     pub fn from(gpa: mem.Allocator, initStr: []const u8) !Self {
         const str = try gpa.alloc(u8, initStr.len);
         @memcpy(str, initStr);
+        return String{
+            .str = str,
+        };
+    }
+
+    /// Create and inizialize a case-sensitivering
+    /// String now own the memory.
+    pub fn fromOwned(str: []u8) Self {
         return String{
             .str = str,
         };

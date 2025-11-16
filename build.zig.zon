@@ -2,7 +2,7 @@
     .name = .String,
     .version = "0.0.0",
     .fingerprint = 0x9912b79fb655a132, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0-dev.747+493ad58ff",
+    .minimum_zig_version = "0.16.0-dev.1334+06d08daba",
     .dependencies = .{},
     .paths = .{
         "build.zig",
