@@ -37,9 +37,12 @@ pub fn ex2(gpa: std.mem.Allocator) !void {
 }
 
 pub fn ex3() !void {
-    const Fixed: type = Strings.FixedString(1024);
-    var s = Fixed.empty();
+    var fb: [1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&fb);
+    const gpa: std.mem.Allocator = fba.allocator();
 
+    var s = Strings.ManagedString.empty(gpa);
+    defer s.deinit();
     try s.append("Hello,");
     try s.append(" World!\n");
 

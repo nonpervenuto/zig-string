@@ -57,10 +57,14 @@ defer new_string.deinit(gpa);
 std.debug.print("{f}", .{new_string});
 ```
 
-### No gpa, buffer with max size
+### Managed version
 ```zig
-const Fixed : type = Strings.FixedString(1024);
-var s = Fixed.empty();
+var fb: [1024]u8 = undefined;
+var fba = std.heap.FixedBufferAllocator.init(&fb);
+const gpa: std.mem.Allocator = fba.allocator();
+
+var s = Strings.ManagedString.empty(gpa);
+defer s.deinit();
 
 try s.append("Hello,");
 try s.append(" World!\n");

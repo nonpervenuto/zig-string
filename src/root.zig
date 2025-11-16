@@ -521,69 +521,64 @@ pub const String = struct {
     }
 };
 
-// TODO: i have no idea what i am doing :) The buffer is shared between all strings
-var fixed_buffer: [1024]u8 = undefined;
-var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&fixed_buffer);
-const fixed_allocator = fixed_buffer_allocator.allocator();
+pub const ManagedString = struct {
+    const Self = @This();
 
-pub fn FixedString(comptime _: usize) type {
-    return struct {
-        const Self = @This();
+    gpa: mem.Allocator,
+    string: String = undefined,
 
-        gpa: std.mem.Allocator = undefined,
-        string: String = undefined,
+    /// Create an empty a String
+    pub fn empty(gpa: mem.Allocator) Self {
+        var inst: Self = .{ .gpa = gpa };
+        inst.string = String.from(inst.gpa, "") catch unreachable;
+        return inst;
+    }
 
-        /// Create an empty a String
-        pub fn empty() Self {
-            var inst: Self = .{};
-            inst.gpa = fixed_allocator;
-            inst.string = String.from(inst.gpa, "") catch unreachable;
-            return inst;
-        }
+    /// Create and inizialize a String
+    pub fn from(gpa: mem.Allocator, initStr: []const u8) !Self {
+        var inst: Self = .{ .gpa = gpa };
+        inst.string = try String.from(inst.gpa, initStr);
+        return inst;
+    }
 
-        /// Create and inizialize a String
-        pub fn from(initStr: []const u8) !Self {
-            var inst: Self = .{};
-            inst.gpa = fixed_allocator;
-            inst.string = try String.from(inst.gpa, initStr);
-            return inst;
-        }
+    /// Remove empty spaces at the start and at the end.
+    /// Invalidates str if less memory is needed.
+    pub fn trim(self: *Self) !void {
+        try self.string.trim(self.gpa);
+    }
 
-        /// Remove empty spaces at the start and at the end.
-        /// Invalidates str if less memory is needed.
-        pub fn trim(self: *Self) !void {
-            try self.string.trim(self.gpa);
-        }
+    pub fn uppercase(self: *Self) void {
+        self.string.uppercase();
+    }
 
-        pub fn uppercase(self: *Self) void {
-            self.string.uppercase();
-        }
+    pub fn lowercase(self: *Self) void {
+        self.string.lowercase();
+    }
 
-        pub fn lowercase(self: *Self) void {
-            self.string.lowercase();
-        }
+    pub fn capitalize(self: *Self) void {
+        self.string.capitalize();
+    }
 
-        pub fn capitalize(self: *Self) void {
-            self.string.capitalize();
-        }
+    pub fn append(self: *Self, str: []const u8) !void {
+        try self.string.append(self.gpa, str);
+    }
 
-        pub fn append(self: *Self, str: []const u8) !void {
-            try self.string.append(self.gpa, str);
-        }
+    pub fn prepend(self: *Self, str: []const u8) !void {
+        try self.string.prepend(self.gpa, str);
+    }
 
-        pub fn prepend(self: *Self, str: []const u8) !void {
-            try self.string.prepend(self.gpa, str);
-        }
+    pub fn insert(self: *Self, index: usize, str: []const u8) !void {
+        try self.string.insert(self.gpa, index, str);
+    }
 
-        pub fn insert(self: *Self, index: usize, str: []const u8) !void {
-            try self.string.insert(self.gpa, index, str);
-        }
+    pub fn deinit(self: Self) void {
+        self.string.deinit(self.gpa);
+    }
 
-        pub fn format(self: Self, writer: *std.Io.Writer) !void {
-            try writer.print("{s}", .{self.string.str});
-        }
-    };
-}
+    pub fn format(self: Self, writer: *std.Io.Writer) !void {
+        try writer.print("{s}", .{self.string.str});
+    }
+};
 
 test "Unicode" {
     const gpa = testing.allocator;
@@ -602,14 +597,18 @@ test "Unicode" {
 }
 
 test "Fixed Buffer, no gpa" {
+    const gpa = testing.allocator;
+
     {
-        var string_1 = try FixedString(1024).from("Hello");
+        var string_1 = try ManagedString.from(gpa, "Hello");
+        defer string_1.deinit();
         try string_1.append(", 世界");
         try std.testing.expectEqualSlices(u8, "Hello, 世界", string_1.string.str);
     }
 
     {
-        var string_1 = FixedString(1024).empty();
+        var string_1 = ManagedString.empty(gpa);
+        defer string_1.deinit();
         try string_1.append("Aseo");
         try std.testing.expectEqualSlices(u8, "Aseo", string_1.string.str);
     }
