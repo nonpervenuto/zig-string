@@ -6,7 +6,7 @@ pub fn main() !void {
     var allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = allocator.allocator();
 
-    try ex1(gpa);
+    // try ex1(gpa);
     // try ex2(gpa);
     // try ex3();
     try ex4(gpa);
@@ -45,12 +45,10 @@ pub fn ex3() !void {
 }
 
 pub fn ex4(gpa: std.mem.Allocator) !void {
-    var s: String = try String.from(gpa, "Hello,𒀀 🌍!\n");
+    var s: String = try String.from(gpa, "cioè\n");
     defer s.deinit(gpa);
 
     for (0..s.len()) |i| {
-        std.debug.print("{s}", .{s.unicodeCharAt(i).?});
+        std.debug.print("{s}", .{s.charAt(i).?});
     }
-
-    std.debug.print("{f}", .{s});
 }

@@ -116,14 +116,14 @@ pub const StringBuilder = struct {
 /// Given the first byte of a UTF-8 codepoint,
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
 /// If this byte does not match the form of a UTF-8 start byte, returns Utf8InvalidStartByte.
-inline fn utf8Size(char: u8) u3 {
-    return std.unicode.utf8ByteSequenceLength(char) catch 1;
+inline fn utf8Size(char: u8) !u3 {
+    return try std.unicode.utf8ByteSequenceLength(char);
 }
 
-inline fn bufferIndex(str: []const u8, byte_start: usize, index_start: usize, index: usize) usize {
+inline fn bufferIndex(str: []const u8, byte_start: usize, index_start: usize, index: usize) !usize {
     var i: usize = byte_start;
     var utf8_index: usize = index_start;
-    while (i < str.len) : (i += utf8Size(str[i])) {
+    while (i < str.len) : (i += try utf8Size(str[i])) {
         if (utf8_index == index) break;
         utf8_index += 1;
     }
@@ -155,7 +155,9 @@ const Utf8Iter = struct {
         if (self.byte_index >= self.str.len) return null;
 
         const start = self.byte_index;
-        const len = utf8Size(self.str[start]);
+
+        // TODO: unreachable because the input is already validated?
+        const len = utf8Size(self.str[start]) catch unreachable;
         const slice = self.str[start .. start + len];
 
         const result = Utf8{
@@ -282,7 +284,7 @@ pub const String = struct {
         }
 
         // Index is in the middle
-        const byte_index = bufferIndex(self.str, 0, 0, index);
+        const byte_index = try bufferIndex(self.str, 0, 0, index);
 
         var new_str = try gpa.alloc(u8, self.str.len + str.len);
         errdefer gpa.free(new_str);
@@ -304,8 +306,8 @@ pub const String = struct {
         // Nothing to remove
         if (start_index == end_index) return;
 
-        const start_byte = bufferIndex(self.str, 0, 0, start_index);
-        const end_byte = bufferIndex(self.str, start_byte, start_index, end_index);
+        const start_byte = try bufferIndex(self.str, 0, 0, start_index);
+        const end_byte = try bufferIndex(self.str, start_byte, start_index, end_index);
 
         const new_len = self.str.len - (end_byte - start_byte);
         var new_str = try gpa.alloc(u8, new_len);
@@ -320,22 +322,21 @@ pub const String = struct {
         self.str = new_str;
     }
 
-    // UTF-8
-    pub fn charAt(self: *Self, index: usize) ?u8 {
+    pub fn charAt(self: *Self, index: usize) ?[]const u8 {
+        if (index > self.len()) {
+            return null;
+        }
+        // TODO: unreachable because the string is already validated?
+        const byte_index = bufferIndex(self.str, 0, 0, index) catch unreachable;
+        const size = utf8Size(self.str[byte_index]) catch unreachable;
+        return self.str[byte_index .. byte_index + size];
+    }
+
+    pub fn byteAt(self: *Self, index: usize) ?u8 {
         if (index > self.str.len) {
             return null;
         }
         return self.str[index];
-    }
-
-    // Unicode
-    pub fn unicodeCharAt(self: *Self, index: usize) ?[]const u8 {
-        if (index > self.len()) {
-            return null;
-        }
-        const byte_index = bufferIndex(self.str, 0, 0, index);
-        const size = utf8Size(self.str[byte_index]);
-        return self.str[byte_index .. byte_index + size];
     }
 
     pub fn indexOf(self: *Self, needle: []const u8) ?usize {
@@ -361,7 +362,7 @@ pub const String = struct {
         var haystack_byte_index: usize = 0;
         var haystack_char_index: usize = 0;
 
-        while (haystack_byte_index < haystack.len) : (haystack_byte_index += utf8Size(haystack[haystack_byte_index])) {
+        while (haystack_byte_index < haystack.len) : (haystack_byte_index += utf8Size(haystack[haystack_byte_index]) catch unreachable) {
             // Try to match needle starting here
             var match: bool = true;
             var needle_byte_index: usize = 0;
@@ -584,12 +585,10 @@ test "Unicode" {
     s.lowercase();
     try std.testing.expectEqualSlices(u8, "hello, 世界 hello", s.str);
 
-    try std.testing.expectEqual('h', s.charAt(0).?);
-    try std.testing.expectEqual('\xE4', s.charAt(7).?);
-
-    try std.testing.expectEqualStrings("h", s.unicodeCharAt(0).?);
-    try std.testing.expectEqualStrings("世", s.unicodeCharAt(7).?);
-    try std.testing.expectEqualStrings("界", s.unicodeCharAt(8).?);
+    try std.testing.expectEqualStrings("h", s.charAt(0).?);
+    try std.testing.expectEqualStrings("h", s.charAt(0).?);
+    try std.testing.expectEqualStrings("世", s.charAt(7).?);
+    try std.testing.expectEqualStrings("界", s.charAt(8).?);
 }
 
 test "Fixed Buffer, no gpa" {
@@ -870,9 +869,9 @@ test "Unicode charAt and unicodeCharAt consistency" {
     var s = try String.from(gpa, "AŒB");
     defer s.deinit(gpa);
 
-    try std.testing.expectEqual('A', s.charAt(0).?);
-    try std.testing.expectEqualStrings("Œ", s.unicodeCharAt(1).?);
-    try std.testing.expectEqual('B', s.charAt(3).?);
+    try std.testing.expectEqual('A', s.byteAt(0).?);
+    try std.testing.expectEqualStrings("Œ", s.charAt(1).?);
+    try std.testing.expectEqual('B', s.byteAt(3).?);
 }
 
 test "String remove with ASCII, multi-byte, and emoji" {
