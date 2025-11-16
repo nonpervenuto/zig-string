@@ -8,7 +8,7 @@ pub fn main() !void {
 
     try ex1(gpa);
     // try ex2(gpa);
-    // try ex3();
+    try ex3();
     // try ex4(gpa);
 
     try ex5(gpa);

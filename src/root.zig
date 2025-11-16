@@ -521,34 +521,38 @@ pub const String = struct {
     }
 };
 
-pub fn FixedString(comptime max_size: usize) type {
+// TODO: i have no idea what i am doing :) The buffer is shared between all strings
+var fixed_buffer: [1024]u8 = undefined;
+var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&fixed_buffer);
+const fixed_allocator = fixed_buffer_allocator.allocator();
+
+pub fn FixedString(comptime _: usize) type {
     return struct {
         const Self = @This();
 
-        buffer: [max_size]u8 = undefined,
-        gpa: std.heap.FixedBufferAllocator = undefined,
+        gpa: std.mem.Allocator = undefined,
         string: String = undefined,
 
         /// Create an empty a String
         pub fn empty() Self {
             var inst: Self = .{};
-            inst.gpa = std.heap.FixedBufferAllocator.init(inst.buffer[0..]);
-            inst.string = String.from(inst.gpa.allocator(), "") catch unreachable;
+            inst.gpa = fixed_allocator;
+            inst.string = String.from(inst.gpa, "") catch unreachable;
             return inst;
         }
 
         /// Create and inizialize a String
         pub fn from(initStr: []const u8) !Self {
             var inst: Self = .{};
-            inst.gpa = std.heap.FixedBufferAllocator.init(inst.buffer[0..]);
-            inst.string = try String.from(inst.gpa.allocator(), initStr);
+            inst.gpa = fixed_allocator;
+            inst.string = try String.from(inst.gpa, initStr);
             return inst;
         }
 
         /// Remove empty spaces at the start and at the end.
         /// Invalidates str if less memory is needed.
         pub fn trim(self: *Self) !void {
-            try self.string.trim(self.gpa.allocator());
+            try self.string.trim(self.gpa);
         }
 
         pub fn uppercase(self: *Self) void {
@@ -564,23 +568,19 @@ pub fn FixedString(comptime max_size: usize) type {
         }
 
         pub fn append(self: *Self, str: []const u8) !void {
-            try self.string.append(self.gpa.allocator(), str);
+            try self.string.append(self.gpa, str);
         }
 
         pub fn prepend(self: *Self, str: []const u8) !void {
-            try self.string.prepend(self.gpa.allocator(), str);
+            try self.string.prepend(self.gpa, str);
         }
 
         pub fn insert(self: *Self, index: usize, str: []const u8) !void {
-            try self.string.insert(self.gpa.allocator(), index, str);
-        }
-
-        pub fn deinit(self: Self) void {
-            self.string.deinit(self.gpa.allocator());
+            try self.string.insert(self.gpa, index, str);
         }
 
         pub fn format(self: Self, writer: *std.Io.Writer) !void {
-            try writer.print("{f}", .{self.string});
+            try writer.print("{s}", .{self.string.str});
         }
     };
 }
