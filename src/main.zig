@@ -27,11 +27,11 @@ pub fn ex2(gpa: std.mem.Allocator) !void {
     var s: String = String.empty();
     defer s.deinit(gpa);
 
-    var builder = s.builder();
-    var new_string = try builder.append(" World!\n").insert(0, "hello").capitalize().insert(5, ",").build(gpa);
-    defer new_string.deinit(gpa);
+    // var builder = s.builder();
+    // var new_string = try builder.append(" World!\n").insert(0, "hello").capitalize().insert(5, ",").build(gpa);
+    // defer new_string.deinit(gpa);
 
-    std.debug.print("{f}", .{new_string});
+    // std.debug.print("{f}", .{new_string});
 }
 
 pub fn ex3() !void {
@@ -45,7 +45,7 @@ pub fn ex3() !void {
 }
 
 pub fn ex4(gpa: std.mem.Allocator) !void {
-    var s: String = try String.from(gpa, "Hello, 🌍!\n");
+    var s: String = try String.from(gpa, "Hello,𒀀 🌍!\n");
     defer s.deinit(gpa);
 
     for (0..s.len()) |i| {
