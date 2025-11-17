@@ -131,45 +131,35 @@ inline fn bufferIndex(str: []const u8, byte_start: usize, index_start: usize, in
 }
 
 const Utf8 = struct {
-    byte_index: usize, // index in buffer
-    char_index: usize, // index in chars
-    char_len: u3, // number of bytes for this character
-    slice: []const u8, // the bytes of the character
+    byte_index: usize, // Points to the byte where the UTF-8 codepoint starts
+    slice: []const u8, // UTF-8 slice
 };
 
 const Utf8Iter = struct {
-    str: []const u8,
-    byte_index: usize = 0,
-    char_index: usize = 0,
+    internal_view: std.unicode.Utf8View = undefined,
+    internal_iterator: std.unicode.Utf8Iterator = undefined,
 
     pub fn init(s: []const u8) Utf8Iter {
+        const view: std.unicode.Utf8View = std.unicode.Utf8View.initUnchecked(s);
+        const internal_iterator: std.unicode.Utf8Iterator = view.iterator();
         return Utf8Iter{
-            .str = s,
-            .byte_index = 0,
-            .char_index = 0,
+            .internal_view = view,
+            .internal_iterator = internal_iterator,
         };
     }
 
     /// Returns true if there is a next character
     pub fn next(self: *Utf8Iter) ?Utf8 {
-        if (self.byte_index >= self.str.len) return null;
-
-        const start = self.byte_index;
-
-        // TODO: unreachable because the input is already validated?
-        const len = utf8Size(self.str[start]) catch unreachable;
-        const slice = self.str[start .. start + len];
-
-        const result = Utf8{
-            .byte_index = start,
-            .char_index = self.char_index,
-            .char_len = len,
-            .slice = slice,
-        };
-
-        self.byte_index += len;
-        self.char_index += 1;
-        return result;
+        const byte_index = self.internal_iterator.i;
+        const next_slice = self.internal_iterator.nextCodepointSlice();
+        if (next_slice) |slice| {
+            const result = Utf8{
+                .byte_index = byte_index,
+                .slice = slice,
+            };
+            return result;
+        }
+        return null;
     }
 };
 
@@ -231,6 +221,9 @@ pub const String = struct {
     pub fn uppercase(self: *Self) void {
         var iter = Utf8Iter.init(self.str);
         while (iter.next()) |c| {
+            if (c.slice.len > 1) {
+                continue;
+            }
             const i = c.byte_index;
             self.str[i] = std.ascii.toUpper(self.str[i]);
         }
@@ -239,6 +232,9 @@ pub const String = struct {
     pub fn lowercase(self: *Self) void {
         var iter = Utf8Iter.init(self.str);
         while (iter.next()) |c| {
+            if (c.slice.len > 1) {
+                continue;
+            }
             const i = c.byte_index;
             self.str[i] = std.ascii.toLower(self.str[i]);
         }
