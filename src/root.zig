@@ -226,20 +226,6 @@ pub const String = struct {
         return size;
     }
 
-    /// Remove empty spaces at the start and at the end.
-    /// Invalidates str if less memory is needed.
-    pub fn trim(self: *Self, gpa: mem.Allocator) !void {
-        const trimmed_slice: []const u8 = mem.trim(u8, self.str, "\t\n\r ");
-
-        if (std.mem.eql(u8, self.str, trimmed_slice)) {
-            return;
-        }
-
-        const trimmed = try gpa.dupe(u8, trimmed_slice);
-        gpa.free(self.str);
-        self.str = trimmed;
-    }
-
     pub fn uppercase(self: *Self) void {
         var iter = Utf8Iter.init(self.str);
         while (iter.next()) |c| {
@@ -462,18 +448,23 @@ pub const String = struct {
     }
 
     /// Reverses the string by UTF-8 characters
-    /// WARNING: very slow :)
     pub fn reverse(self: *Self, gpa: mem.Allocator) !void {
-        var new_str: Self = try String.empty(gpa);
-        errdefer new_str.deinit(gpa);
+        var new_str = try gpa.alloc(u8, self.str.len);
+        errdefer gpa.free(new_str);
 
-        var iter = Utf8Iter.init(self.str);
-        while (iter.next()) |utf8| {
-            try new_str.prepend(gpa, utf8.slice);
+        var i_forward: usize = 0;
+        var i_backward_signed: isize = @intCast(self.str.len - 1);
+        while (i_backward_signed >= 0) : (i_backward_signed += -1) {
+            const i_backward: usize = @intCast(i_backward_signed);
+            if (self.str[i_backward] & 0xC0 != 0x80) {
+                const size = try utf8Size(self.str[i_backward]);
+                @memcpy(new_str[i_forward .. i_forward + size], self.str[i_backward .. i_backward + size]);
+                i_forward += size;
+            }
         }
 
         gpa.free(self.str);
-        self.str = new_str.str;
+        self.str = new_str;
     }
 
     /// Replaces all occurrences of old with new
@@ -493,40 +484,50 @@ pub const String = struct {
         _ = n;
     }
 
+    /// Remove empty spaces at the start and at the end.
+    /// Invalidates str if less memory is needed.
+    pub fn trim(self: *Self, gpa: mem.Allocator) !void {
+        const trimmed_slice: []const u8 = mem.trim(u8, self.str, "\t\n\r ");
+        if (std.mem.eql(u8, self.str, trimmed_slice)) {
+            return;
+        }
+        const trimmed = try gpa.dupe(u8, trimmed_slice);
+        gpa.free(self.str);
+        self.str = trimmed;
+    }
+
     /// Trims whitespace only from the start
-    // TODO: trim leading whitespace UTF-8 aware
     pub fn trimStart(self: *Self, gpa: mem.Allocator) !void {
-        _ = self;
-        _ = gpa;
+        const trimmed_slice: []const u8 = mem.trimStart(u8, self.str, "\t\n\r ");
+        if (std.mem.eql(u8, self.str, trimmed_slice)) {
+            return;
+        }
+        const trimmed = try gpa.dupe(u8, trimmed_slice);
+        gpa.free(self.str);
+        self.str = trimmed;
     }
 
     /// Trims whitespace only from the end
-    // TODO: trim trailing whitespace UTF-8 aware
     pub fn trimEnd(self: *Self, gpa: mem.Allocator) !void {
-        _ = self;
-        _ = gpa;
+        const trimmed_slice: []const u8 = mem.trimEnd(u8, self.str, "\t\n\r ");
+        if (std.mem.eql(u8, self.str, trimmed_slice)) {
+            return;
+        }
+        const trimmed = try gpa.dupe(u8, trimmed_slice);
+        gpa.free(self.str);
+        self.str = trimmed;
     }
 
     /// Returns true if the string is empty
-    pub fn isEmpty(self: *Self) bool {
+    pub fn isEmpty(self: Self) bool {
         return self.len() == 0;
     }
 
-    /// Converts string to ASCII only (drops non-ASCII characters)
-    // TODO: create ASCII-only version, drop or replace non-ASCII
-    pub fn toAscii(self: *Self, gpa: mem.Allocator) !void {
-        _ = self;
-        _ = gpa;
-    }
-
     /// Iterates over each UTF-8 character, calling the callback
-    // pub fn forEachChar(self: *Self, callback: fn ([]const u8) void) void {
-    // }
-
-    /// Maps each UTF-8 character into a new string
-    // pub fn map(self: *Self, gpa: mem.Allocator, callback: fn ([]const u8) []const u8) !Self {
-    // return Self{ .str = &.{} };
-    // }
+    pub fn forEachChar(self: *Self, callback: fn ([]const u8) void) void {
+        _ = self;
+        _ = callback;
+    }
 
     pub fn builder(self: Self) StringBuilder {
         return StringBuilder{ .str = self.str };
@@ -537,7 +538,8 @@ pub const String = struct {
     }
 
     pub fn format(self: Self, writer: *std.Io.Writer) !void {
-        try writer.print("{s}", .{self.str});
+        try std.unicode.fmtUtf8(self.str).format(writer);
+        // try writer.print("{s}", .{self.str});
     }
 };
 
@@ -596,7 +598,9 @@ pub const ManagedString = struct {
     }
 
     pub fn format(self: Self, writer: *std.Io.Writer) !void {
-        try writer.print("{s}", .{self.string.str});
+        try self.string.format(writer);
+        // try std.unicode.fmtUtf8(self.str).format(writer);
+        // try writer.print("{s}", .{self.string.str});
     }
 };
 
@@ -1144,8 +1148,18 @@ test "substring" {
 
 test "reverse" {
     const gpa = testing.allocator;
-    var s = try String.from(gpa, "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.");
-    defer s.deinit(gpa);
-    try s.reverse(gpa);
-    try std.testing.expectEqualStrings(".murobal tse di mina tillom tnuresed aiciffo iuq apluc ni tnus ,tnediorp non tatadipuc taceacco tnis ruetpecxE .rutairap allun taiguf ue erolod mullic esse tilev etatpulov ni tiredneherper ni rolod eruri etua siuD .tauqesnoc odommoc ae xe piuqila tu isin sirobal ocmallu noitaticrexe durtson siuq ,mainev minim da mine tU .auqila angam erolod te erobal tu tnudidicni ropmet domsuie od des ,tile gnicsipida rutetcesnoc ,tema tis rolod muspi meroL", s.str);
+
+    {
+        var s = try String.from(gpa, "🌍è$@#ùà°ç:_éPé");
+        defer s.deinit(gpa);
+        try s.reverse(gpa);
+        try std.testing.expectEqualStrings("éPé_:ç°àù#@$è🌍", s.str);
+    }
+
+    {
+        var s = try String.from(gpa, "Lorem🌍ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.");
+        defer s.deinit(gpa);
+        try s.reverse(gpa);
+        try std.testing.expectEqualStrings(".murobal tse di mina tillom tnuresed aiciffo iuq apluc ni tnus ,tnediorp non tatadipuc taceacco tnis ruetpecxE .rutairap allun taiguf ue erolod mullic esse tilev etatpulov ni tiredneherper ni rolod eruri etua siuD .tauqesnoc odommoc ae xe piuqila tu isin sirobal ocmallu noitaticrexe durtson siuq ,mainev minim da mine tU .auqila angam erolod te erobal tu tnudidicni ropmet domsuie od des ,tile gnicsipida rutetcesnoc ,tema tis rolod muspi🌍meroL", s.str);
+    }
 }

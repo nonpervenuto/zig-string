@@ -22,7 +22,7 @@ pub fn ex1(gpa: std.mem.Allocator) !void {
     s.lowercase();
     try s.insert(gpa, 6, " ");
     s.capitalize();
-    std.debug.print("{f}", .{s});
+    std.debug.print("{f}\n", .{s});
 }
 
 pub fn ex2(gpa: std.mem.Allocator) !void {
@@ -43,7 +43,7 @@ pub fn ex3() !void {
 
     var s = try Strings.ManagedString.empty(gpa);
     defer s.deinit();
-    try s.append("Hello,");
+    // try s.append("Hello,");
     try s.append(" World!\n");
 
     std.debug.print("{f}", .{s});
