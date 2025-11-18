@@ -6,7 +6,7 @@ const StringError = error{
     IndexOutOfBounds,
 };
 
-const OpFn = enum { trim, uppercase, lowercase, capitalize, append, prepend, insert };
+const OpFn = enum { trim, uppercase, lowercase, capitalize, append, prepend, insert, remove, reverse };
 
 const Op = union(OpFn) {
     trim: void,
@@ -16,6 +16,8 @@ const Op = union(OpFn) {
     append: []const u8,
     prepend: []const u8,
     insert: struct { index: usize, str: []const u8 },
+    remove: struct { index: usize, n: usize },
+    reverse: void,
 };
 
 pub const StringBuilder = struct {
@@ -27,28 +29,28 @@ pub const StringBuilder = struct {
 
     pub fn trim(self: *Self) *Self {
         if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = Op.trim;
+        self.ops[self.idx] = .trim;
         self.idx += 1;
         return self;
     }
 
     pub fn uppercase(self: *Self) *Self {
         if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = Op.uppercase;
+        self.ops[self.idx] = .uppercase;
         self.idx += 1;
         return self;
     }
 
     pub fn lowercase(self: *Self) *Self {
         if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = Op.lowercase;
+        self.ops[self.idx] = .lowercase;
         self.idx += 1;
         return self;
     }
 
     pub fn capitalize(self: *Self) *Self {
         if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = Op.capitalize;
+        self.ops[self.idx] = .capitalize;
         self.idx += 1;
         return self;
     }
@@ -70,6 +72,20 @@ pub const StringBuilder = struct {
     pub fn insert(self: *Self, index: usize, str: []const u8) *Self {
         if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
         self.ops[self.idx] = .{ .insert = .{ .index = index, .str = str } };
+        self.idx += 1;
+        return self;
+    }
+
+    pub fn remove(self: *Self, index: usize, n: usize) *Self {
+        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
+        self.ops[self.idx] = .{ .remove = .{ .index = index, .n = n } };
+        self.idx += 1;
+        return self;
+    }
+
+    pub fn reverse(self: *Self) *Self {
+        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
+        self.ops[self.idx] = .reverse;
         self.idx += 1;
         return self;
     }
@@ -105,6 +121,12 @@ pub const StringBuilder = struct {
                 },
                 .insert => |tuple| {
                     try new_str.insert(gpa, tuple.index, tuple.str);
+                },
+                .remove => |tuple| {
+                    try new_str.remove(gpa, tuple.index, tuple.n);
+                },
+                .reverse => {
+                    try new_str.reverse(gpa);
                 },
             }
         }
@@ -170,10 +192,10 @@ pub const String = struct {
     str: []u8,
 
     /// Create an empty a String
-    /// WARNING: FIX ME, we shouold allocate zero memory instead of this.
-    pub fn empty() Self {
+    pub fn empty(gpa: mem.Allocator) !Self {
+        const str = try gpa.alloc(u8, 0);
         return String{
-            .str = &.{},
+            .str = str,
         };
     }
 
@@ -262,58 +284,46 @@ pub const String = struct {
     }
 
     pub fn insert(self: *Self, gpa: mem.Allocator, index: usize, str: []const u8) !void {
-        const end_index = self.len();
+        const length = self.len();
 
-        if (index == 0) {
-            // prepend
-            var new_str = try gpa.alloc(u8, self.str.len + str.len);
-            errdefer gpa.free(new_str);
-
-            @memcpy(new_str[0..str.len], str);
-            @memcpy(new_str[str.len..], self.str);
-            if (self.str.len != 0) gpa.free(self.str);
-            self.str = new_str;
-            return;
-        } else if (index == end_index) {
-            // append
-            var new_str = try gpa.alloc(u8, self.str.len + str.len);
-            errdefer gpa.free(new_str);
-
-            if (self.str.len != 0) @memcpy(new_str[0..self.str.len], self.str);
-            @memcpy(new_str[self.str.len..], str);
-            if (self.str.len != 0) gpa.free(self.str);
-            self.str = new_str;
-            return;
-        } else if (index > end_index) {
-            // error
+        if (index > length) {
             return StringError.IndexOutOfBounds;
         }
-
-        // Index is in the middle
-        const byte_index = try bufferIndex(self.str, 0, 0, index);
 
         var new_str = try gpa.alloc(u8, self.str.len + str.len);
         errdefer gpa.free(new_str);
 
-        if (byte_index > 0) @memcpy(new_str[0..byte_index], self.str[0..byte_index]);
-        @memcpy(new_str[byte_index + str.len ..], self.str[byte_index..]);
-        if (byte_index <= self.str.len) @memcpy(new_str[byte_index .. byte_index + str.len], str);
+        if (index == 0) {
+            // prepend
+            @memcpy(new_str[0..str.len], str);
+            @memcpy(new_str[str.len..], self.str);
+        } else if (index == length) {
+            // append
+            @memcpy(new_str[0..self.str.len], self.str);
+            @memcpy(new_str[self.str.len..], str);
+        } else {
+            // Index is in the middle
+            const byte_index = try bufferIndex(self.str, 0, 0, index);
+            if (byte_index > 0) @memcpy(new_str[0..byte_index], self.str[0..byte_index]);
+            @memcpy(new_str[byte_index + str.len ..], self.str[byte_index..]);
+            if (byte_index <= self.str.len) @memcpy(new_str[byte_index .. byte_index + str.len], str);
+        }
 
         gpa.free(self.str);
         self.str = new_str;
     }
 
-    pub fn remove(self: *Self, gpa: mem.Allocator, start_index: usize, end_index: usize) !void {
+    pub fn remove(self: *Self, gpa: mem.Allocator, index: usize, n: usize) !void {
         const str_len = self.len();
-        if (start_index > end_index or end_index > str_len) {
+        if (index + n > str_len) {
             return StringError.IndexOutOfBounds;
         }
 
         // Nothing to remove
-        if (start_index == end_index) return;
+        if (n == 0) return;
 
-        const start_byte = try bufferIndex(self.str, 0, 0, start_index);
-        const end_byte = try bufferIndex(self.str, start_byte, start_index, end_index);
+        const start_byte = try bufferIndex(self.str, 0, 0, index);
+        const end_byte = try bufferIndex(self.str, start_byte, index, index + n);
 
         const new_len = self.str.len - (end_byte - start_byte);
         var new_str = try gpa.alloc(u8, new_len);
@@ -332,6 +342,7 @@ pub const String = struct {
         if (index > self.len()) {
             return null;
         }
+
         // TODO: unreachable because the string is already validated?
         const byte_index = bufferIndex(self.str, 0, 0, index) catch unreachable;
         const size = utf8Size(self.str[byte_index]) catch unreachable;
@@ -395,27 +406,21 @@ pub const String = struct {
     }
 
     /// Returns true if the string contains the given substring
-    // TODO: implement UTF-8 safe substring check
-    pub fn contains(self: *Self, needle: []const u8) bool {
-        _ = self;
-        _ = needle;
+    pub fn contains(self: *Self, needle: []const u8, ignore_case: bool) bool {
+        if (if (ignore_case) self.indexOfIgnoreCase(needle) else self.indexOf(needle)) |_| {
+            return true;
+        }
         return false;
     }
 
     /// Returns true if the string starts with the given substring
-    // TODO: implement UTF-8 safe prefix check
     pub fn startsWith(self: *Self, prefix: []const u8) bool {
-        _ = self;
-        _ = prefix;
-        return false;
+        return std.mem.eql(u8, self.str[0..prefix.len], prefix);
     }
 
     /// Returns true if the string ends with the given substring
-    // TODO: implement UTF-8 safe suffix check
     pub fn endsWith(self: *Self, suffix: []const u8) bool {
-        _ = self;
-        _ = suffix;
-        return false;
+        return std.mem.eql(u8, self.str[self.str.len - suffix.len ..], suffix);
     }
 
     /// Finds the last occurrence of a substring, returning its character index
@@ -434,19 +439,41 @@ pub const String = struct {
         return 0;
     }
 
-    /// Returns a substring from start (inclusive) to end (exclusive) indices
-    // TODO: slice the string safely by UTF-8 character indices
-    pub fn substring(self: *Self, start: usize, end: usize) !Self {
-        _ = self;
-        _ = start;
-        _ = end;
+    /// Returns a substring from index to index + n
+    pub fn substring(self: *Self, gpa: mem.Allocator, index: usize, n: usize) !Self {
+        const str_len = self.len();
+        if (index + n > str_len) {
+            return StringError.IndexOutOfBounds;
+        }
+
+        if (n == 0) {
+            return try String.empty(gpa);
+        }
+
+        const start_byte = try bufferIndex(self.str, 0, 0, index);
+        const end_byte = try bufferIndex(self.str, start_byte, index, index + n);
+
+        const new_str = try gpa.alloc(u8, end_byte - start_byte);
+        errdefer gpa.free(new_str);
+
+        @memcpy(new_str, self.str[start_byte..end_byte]);
+
+        return .{ .str = new_str };
     }
 
     /// Reverses the string by UTF-8 characters
-    // TODO: reverse the string while respecting UTF-8 codepoints
+    /// WARNING: very slow :)
     pub fn reverse(self: *Self, gpa: mem.Allocator) !void {
-        _ = self;
-        _ = gpa;
+        var new_str: Self = try String.empty(gpa);
+        errdefer new_str.deinit(gpa);
+
+        var iter = Utf8Iter.init(self.str);
+        while (iter.next()) |utf8| {
+            try new_str.prepend(gpa, utf8.slice);
+        }
+
+        gpa.free(self.str);
+        self.str = new_str.str;
     }
 
     /// Replaces all occurrences of old with new
@@ -506,9 +533,6 @@ pub const String = struct {
     }
 
     pub fn deinit(self: Self, gpa: mem.Allocator) void {
-        // If the slice has length 0 we assume it's the static empty slice and do not free.
-        // (If you ever allocate a true zero-length buffer, this will leak it.)
-        if (self.str.len == 0) return;
         gpa.free(self.str);
     }
 
@@ -524,9 +548,9 @@ pub const ManagedString = struct {
     string: String = undefined,
 
     /// Create an empty a String
-    pub fn empty(gpa: mem.Allocator) Self {
+    pub fn empty(gpa: mem.Allocator) !Self {
         var inst: Self = .{ .gpa = gpa };
-        inst.string = String.from(inst.gpa, "") catch unreachable;
+        inst.string = try String.empty(gpa);
         return inst;
     }
 
@@ -603,7 +627,7 @@ test "Fixed Buffer, no gpa" {
     }
 
     {
-        var string_1 = ManagedString.empty(gpa);
+        var string_1 = try ManagedString.empty(gpa);
         defer string_1.deinit();
         try string_1.append("Aseo");
         try std.testing.expectEqualSlices(u8, "Aseo", string_1.string.str);
@@ -652,14 +676,14 @@ test "string empty" {
     const gpa = testing.allocator;
 
     {
-        var string_1 = String.empty();
+        var string_1 = try String.empty(gpa);
         defer string_1.deinit(gpa);
         try string_1.trim(gpa);
         try std.testing.expectEqualSlices(u8, "", string_1.str);
     }
 
     {
-        var string_1 = String.empty();
+        var string_1 = try String.empty(gpa);
         defer string_1.deinit(gpa);
         try string_1.append(gpa, "Hello");
         try std.testing.expectEqualSlices(u8, "Hello", string_1.str);
@@ -887,7 +911,7 @@ test "String remove with ASCII, multi-byte, and emoji" {
         var s = try String.from(gpa, "Hello");
         defer s.deinit(gpa);
 
-        try s.remove(gpa, 1, 2); // remove 'e'
+        try s.remove(gpa, 1, 1); // remove 'e'
         try std.testing.expectEqualSlices(u8, "Hllo", s.str);
     }
 
@@ -896,7 +920,7 @@ test "String remove with ASCII, multi-byte, and emoji" {
         var s = try String.from(gpa, "Hello, World!");
         defer s.deinit(gpa);
 
-        try s.remove(gpa, 5, 7); // remove ", "
+        try s.remove(gpa, 5, 2); // remove ", "
         try std.testing.expectEqualSlices(u8, "HelloWorld!", s.str);
     }
 
@@ -905,7 +929,7 @@ test "String remove with ASCII, multi-byte, and emoji" {
         var s = try String.from(gpa, "Café");
         defer s.deinit(gpa);
 
-        try s.remove(gpa, 3, 4); // remove 'é'
+        try s.remove(gpa, 3, 1); // remove 'é'
         try std.testing.expectEqualSlices(u8, "Caf", s.str);
     }
 
@@ -914,7 +938,7 @@ test "String remove with ASCII, multi-byte, and emoji" {
         var s = try String.from(gpa, "Hi 😀!");
         defer s.deinit(gpa);
 
-        try s.remove(gpa, 3, 4); // remove emoji
+        try s.remove(gpa, 3, 1); // remove emoji
         try std.testing.expectEqualSlices(u8, "Hi !", s.str);
     }
 
@@ -950,7 +974,7 @@ test "String remove with ASCII, multi-byte, and emoji" {
         var s = try String.from(gpa, "😀😁😂");
         defer s.deinit(gpa);
 
-        try s.remove(gpa, 1, 3); // remove last two emojis
+        try s.remove(gpa, 1, 2); // remove last two emojis
         try std.testing.expectEqualSlices(u8, "😀", s.str);
     }
 
@@ -959,7 +983,7 @@ test "String remove with ASCII, multi-byte, and emoji" {
         var s = try String.from(gpa, "End!");
         defer s.deinit(gpa);
 
-        try s.remove(gpa, 3, 4);
+        try s.remove(gpa, 3, 1);
         try std.testing.expectEqualSlices(u8, "End", s.str);
     }
 
@@ -968,17 +992,9 @@ test "String remove with ASCII, multi-byte, and emoji" {
         var s = try String.from(gpa, "A😀B");
         defer s.deinit(gpa);
 
-        try s.remove(gpa, 1, 2);
+        try s.remove(gpa, 1, 1);
         try std.testing.expectEqualSlices(u8, "AB", s.str);
     }
-}
-
-test "remove fails for start_index > end_index" {
-    const gpa = testing.allocator;
-    var s = try String.from(gpa, "Hello");
-    defer s.deinit(gpa);
-
-    try std.testing.expectError(StringError.IndexOutOfBounds, s.remove(gpa, 3, 2));
 }
 
 test "remove fails for end_index beyond string length" {
@@ -994,16 +1010,7 @@ test "remove fails for start_index beyond string length" {
     var s = try String.from(gpa, "World");
     defer s.deinit(gpa);
 
-    try std.testing.expectError(StringError.IndexOutOfBounds, s.remove(gpa, 6, 7));
-}
-
-test "remove fails for negative range simulation (start > end)" {
-    // Zig usize cannot be negative, but testing logical error
-    const gpa = testing.allocator;
-    var s = try String.from(gpa, "Zig");
-    defer s.deinit(gpa);
-
-    try std.testing.expectError(StringError.IndexOutOfBounds, s.remove(gpa, 2, 1));
+    try std.testing.expectError(StringError.IndexOutOfBounds, s.remove(gpa, 6, 1));
 }
 
 test "indexOf with ASCII, emoji, and Kanji" {
@@ -1072,10 +1079,73 @@ test "indexOf with Latin-1 characters" {
 
     // Latin-1 accented letters
     try std.testing.expectEqual(3, s.indexOf("é")); // 'Café'
-    try std.testing.expectEqual(5, s.indexOf("N")); // 'Noël'
+    try std.testing.expectEqual(5, s.indexOf("Noë")); // 'Noël'
     try std.testing.expectEqual(7, s.indexOf("ë")); // 'Noël'
     try std.testing.expectEqual(10, s.indexOf("à")); // 'à'
 
     // Not found
     try std.testing.expectEqual(null, s.indexOf("ü"));
+}
+
+test "contains" {
+    const gpa = testing.allocator;
+
+    var s = try String.from(gpa, "Café Noël à côté 🌍");
+    defer s.deinit(gpa);
+
+    try std.testing.expect(s.contains("C", false));
+    try std.testing.expect(s.contains("n", true));
+    try std.testing.expect(s.contains("Café", false));
+    try std.testing.expect(s.contains("côté", false));
+    try std.testing.expect(s.contains("🌍", false));
+    try std.testing.expect(!s.contains("Hello", false));
+}
+
+test "start width and ends with" {
+    const gpa = testing.allocator;
+
+    var s = try String.from(gpa, "Café Noël à côté 🌍");
+    defer s.deinit(gpa);
+
+    try std.testing.expect(s.startsWith("C"));
+    try std.testing.expect(!s.startsWith("🌍"));
+    try std.testing.expect(s.endsWith("🌍"));
+
+    try s.prepend(gpa, "🌍");
+    try std.testing.expect(s.startsWith("🌍"));
+    try std.testing.expect(!s.startsWith("C"));
+}
+
+test "substring" {
+    const gpa = testing.allocator;
+
+    var s = try String.from(gpa, "Café Noël à côté 🌍");
+    defer s.deinit(gpa);
+
+    {
+        var sub_str = try s.substring(gpa, 0, 4);
+        defer sub_str.deinit(gpa);
+        try std.testing.expectEqualStrings("Café", sub_str.str);
+        try std.testing.expectEqual(5, sub_str.str.len);
+    }
+    {
+        var sub_str = try s.substring(gpa, s.len() - 1, 1);
+        defer sub_str.deinit(gpa);
+        try std.testing.expectEqualStrings("🌍", sub_str.str);
+        try std.testing.expectEqual(4, sub_str.str.len);
+    }
+    {
+        var sub_str = try s.substring(gpa, 10, 1);
+        defer sub_str.deinit(gpa);
+        try std.testing.expectEqualStrings("à", sub_str.str);
+        try std.testing.expectEqual(2, sub_str.str.len);
+    }
+}
+
+test "reverse" {
+    const gpa = testing.allocator;
+    var s = try String.from(gpa, "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.");
+    defer s.deinit(gpa);
+    try s.reverse(gpa);
+    try std.testing.expectEqualStrings(".murobal tse di mina tillom tnuresed aiciffo iuq apluc ni tnus ,tnediorp non tatadipuc taceacco tnis ruetpecxE .rutairap allun taiguf ue erolod mullic esse tilev etatpulov ni tiredneherper ni rolod eruri etua siuD .tauqesnoc odommoc ae xe piuqila tu isin sirobal ocmallu noitaticrexe durtson siuq ,mainev minim da mine tU .auqila angam erolod te erobal tu tnudidicni ropmet domsuie od des ,tile gnicsipida rutetcesnoc ,tema tis rolod muspi meroL", s.str);
 }

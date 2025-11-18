@@ -41,7 +41,7 @@ pub fn ex3() !void {
     var fba = std.heap.FixedBufferAllocator.init(&fb);
     const gpa: std.mem.Allocator = fba.allocator();
 
-    var s = Strings.ManagedString.empty(gpa);
+    var s = try Strings.ManagedString.empty(gpa);
     defer s.deinit();
     try s.append("Hello,");
     try s.append(" World!\n");
