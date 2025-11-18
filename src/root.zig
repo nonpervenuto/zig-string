@@ -27,67 +27,51 @@ pub const StringBuilder = struct {
     ops: [255]Op = undefined,
     idx: usize = 0,
 
-    pub fn trim(self: *Self) *Self {
+    pub fn init(slice: []const u8) Self {
+        return Self{ .str = slice };
+    }
+
+    fn addOp(self: *Self, op: Op) *Self {
         if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .trim;
+        self.ops[self.idx] = op;
         self.idx += 1;
         return self;
+    }
+
+    pub fn trim(self: *Self) *Self {
+        return addOp(self, .trim);
     }
 
     pub fn uppercase(self: *Self) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .uppercase;
-        self.idx += 1;
-        return self;
+        return addOp(self, .uppercase);
     }
 
     pub fn lowercase(self: *Self) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .lowercase;
-        self.idx += 1;
-        return self;
+        return addOp(self, .lowercase);
     }
 
     pub fn capitalize(self: *Self) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .capitalize;
-        self.idx += 1;
-        return self;
+        return addOp(self, .capitalize);
     }
 
     pub fn append(self: *Self, str: []const u8) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .{ .append = str };
-        self.idx += 1;
-        return self;
+        return addOp(self, .{ .append = str });
     }
 
     pub fn prepend(self: *Self, str: []const u8) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .{ .prepend = str };
-        self.idx += 1;
-        return self;
+        return addOp(self, .{ .prepend = str });
     }
 
     pub fn insert(self: *Self, index: usize, str: []const u8) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .{ .insert = .{ .index = index, .str = str } };
-        self.idx += 1;
-        return self;
+        return addOp(self, .{ .insert = .{ .index = index, .str = str } });
     }
 
     pub fn remove(self: *Self, index: usize, n: usize) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .{ .remove = .{ .index = index, .n = n } };
-        self.idx += 1;
-        return self;
+        return addOp(self, .{ .remove = .{ .index = index, .n = n } });
     }
 
     pub fn reverse(self: *Self) *Self {
-        if (self.idx >= self.ops.len) @panic("StringBuilder ops overflow");
-        self.ops[self.idx] = .reverse;
-        self.idx += 1;
-        return self;
+        return addOp(self, .reverse);
     }
 
     pub fn build(self: *Self, gpa: mem.Allocator) !String {
@@ -130,7 +114,6 @@ pub const StringBuilder = struct {
                 },
             }
         }
-
         return new_str;
     }
 };
